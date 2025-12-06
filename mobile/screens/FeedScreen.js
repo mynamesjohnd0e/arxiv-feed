@@ -95,13 +95,14 @@ export default function FeedScreen({ navigation }) {
 
       const response = await fetch(url);
       const data = await response.json();
+      const fetchedPapers = data.papers || [];
 
       if (pageNum === 0) {
-        setPapers(data.papers);
+        setPapers(fetchedPapers);
       } else {
-        setPapers((prev) => [...prev, ...data.papers]);
+        setPapers((prev) => [...prev, ...fetchedPapers]);
       }
-      setHasMore(data.hasMore);
+      setHasMore(data.hasMore || false);
       setPage(pageNum);
     } catch (error) {
       console.error('Error fetching papers:', error);

@@ -15,14 +15,18 @@ let cachedFeed = [];
 let lastFetchTime = 0;
 const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 
-// Category mappings for filtering
+// Cache for search results (key: search term, value: { papers, timestamp })
+const searchCache = new Map();
+const SEARCH_CACHE_DURATION = 15 * 60 * 1000; // 15 minutes for search results
+
+// Category mappings for arXiv
 const CATEGORY_MAP = {
-  'ml': ['cs.LG', 'stat.ML'],
-  'nlp': ['cs.CL'],
-  'vision': ['cs.CV'],
-  'ai': ['cs.AI'],
-  'robotics': ['cs.RO'],
-  'neural': ['cs.NE'],
+  'ml': 'cs.LG',
+  'nlp': 'cs.CL',
+  'vision': 'cs.CV',
+  'ai': 'cs.AI',
+  'robotics': 'cs.RO',
+  'neural': 'cs.NE',
 };
 
 // Get the feed of summarized papers
@@ -31,50 +35,72 @@ app.get('/api/feed', async (req, res) => {
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 10;
     const refresh = req.query.refresh === 'true';
-    const search = req.query.search?.toLowerCase() || '';
+    const search = req.query.search?.trim() || '';
     const category = req.query.category?.toLowerCase() || '';
 
     const now = Date.now();
-    const needsRefresh = refresh || cachedFeed.length === 0 || (now - lastFetchTime > CACHE_DURATION);
+    let papers = [];
 
-    if (needsRefresh) {
-      console.log('Fetching fresh papers from arXiv...');
-      const papers = await fetchArxivPapers({ maxResults: 30 });
-
-      console.log(`Summarizing ${papers.length} papers with Claude...`);
-      cachedFeed = await summarizePapers(papers);
-      lastFetchTime = now;
-      console.log('Feed updated successfully');
-    }
-
-    // Filter by search term
-    let filteredFeed = cachedFeed;
     if (search) {
-      filteredFeed = filteredFeed.filter(paper =>
-        paper.title.toLowerCase().includes(search) ||
-        paper.headline.toLowerCase().includes(search) ||
-        paper.summary.toLowerCase().includes(search) ||
-        paper.authors.some(a => a.toLowerCase().includes(search)) ||
-        paper.tags?.some(t => t.toLowerCase().includes(search))
-      );
-    }
+      // Live search from arXiv
+      const cacheKey = `search:${search.toLowerCase()}`;
+      const cached = searchCache.get(cacheKey);
 
-    // Filter by category
-    if (category && CATEGORY_MAP[category]) {
-      const categoryArxiv = CATEGORY_MAP[category];
-      filteredFeed = filteredFeed.filter(paper =>
-        paper.categories.some(c => categoryArxiv.includes(c))
-      );
+      if (cached && !refresh && (now - cached.timestamp < SEARCH_CACHE_DURATION)) {
+        console.log(`Using cached search results for: ${search}`);
+        papers = cached.papers;
+      } else {
+        console.log(`Performing live arXiv search for: ${search}`);
+        const rawPapers = await fetchArxivPapers({ search, maxResults: 20 });
+
+        if (rawPapers.length > 0) {
+          console.log(`Summarizing ${rawPapers.length} search results with Claude...`);
+          papers = await summarizePapers(rawPapers);
+          searchCache.set(cacheKey, { papers, timestamp: now });
+        }
+      }
+    } else if (category && CATEGORY_MAP[category]) {
+      // Category-specific fetch
+      const cacheKey = `category:${category}`;
+      const cached = searchCache.get(cacheKey);
+
+      if (cached && !refresh && (now - cached.timestamp < SEARCH_CACHE_DURATION)) {
+        console.log(`Using cached category results for: ${category}`);
+        papers = cached.papers;
+      } else {
+        console.log(`Fetching papers for category: ${category}`);
+        const rawPapers = await fetchArxivPapers({ category: CATEGORY_MAP[category], maxResults: 20 });
+
+        if (rawPapers.length > 0) {
+          console.log(`Summarizing ${rawPapers.length} category results with Claude...`);
+          papers = await summarizePapers(rawPapers);
+          searchCache.set(cacheKey, { papers, timestamp: now });
+        }
+      }
+    } else {
+      // Default feed - use main cache
+      const needsRefresh = refresh || cachedFeed.length === 0 || (now - lastFetchTime > CACHE_DURATION);
+
+      if (needsRefresh) {
+        console.log('Fetching fresh papers from arXiv...');
+        const rawPapers = await fetchArxivPapers({ maxResults: 30 });
+
+        console.log(`Summarizing ${rawPapers.length} papers with Claude...`);
+        cachedFeed = await summarizePapers(rawPapers);
+        lastFetchTime = now;
+        console.log('Feed updated successfully');
+      }
+      papers = cachedFeed;
     }
 
     const start = page * limit;
-    const paginatedFeed = filteredFeed.slice(start, start + limit);
+    const paginatedFeed = papers.slice(start, start + limit);
 
     res.json({
       papers: paginatedFeed,
       page,
-      totalPapers: filteredFeed.length,
-      hasMore: start + limit < filteredFeed.length
+      totalPapers: papers.length,
+      hasMore: start + limit < papers.length
     });
   } catch (error) {
     console.error('Error fetching feed:', error);

@@ -17,12 +17,29 @@ export async function fetchArxivPapers(options = {}) {
     maxResults = 20,
     start = 0,
     sortBy = 'submittedDate',
-    sortOrder = 'descending'
+    sortOrder = 'descending',
+    search = '',
+    category = ''
   } = options;
 
-  const categoryQuery = AI_CATEGORIES.map(cat => `cat:${cat}`).join('+OR+');
+  let searchQuery;
 
-  const url = `${ARXIV_API_URL}?search_query=${categoryQuery}&start=${start}&max_results=${maxResults}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
+  if (search) {
+    // Search in title, abstract, and author fields within AI categories
+    const categoryFilter = AI_CATEGORIES.map(cat => `cat:${cat}`).join('+OR+');
+    const searchTerms = search.split(' ').map(term =>
+      `(ti:${encodeURIComponent(term)}+OR+abs:${encodeURIComponent(term)}+OR+au:${encodeURIComponent(term)})`
+    ).join('+AND+');
+    searchQuery = `(${categoryFilter})+AND+(${searchTerms})`;
+  } else if (category) {
+    // Filter by specific category
+    searchQuery = `cat:${category}`;
+  } else {
+    // Default: all AI categories
+    searchQuery = AI_CATEGORIES.map(cat => `cat:${cat}`).join('+OR+');
+  }
+
+  const url = `${ARXIV_API_URL}?search_query=${searchQuery}&start=${start}&max_results=${maxResults}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
 
   const response = await fetch(url);
   const xml = await response.text();
