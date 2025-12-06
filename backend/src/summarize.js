@@ -78,13 +78,37 @@ Return ONLY a JSON array, no markdown.`;
   const content = response.content[0].text;
 
   try {
-    const summaries = JSON.parse(content);
-    return papers.map((paper, i) => ({
-      ...paper,
-      ...(summaries[i] || summaries.find(s => s.id === i + 1) || createFallback(paper))
-    }));
+    // Try to extract JSON from the response (handle markdown code blocks)
+    let jsonStr = content;
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
+    }
+
+    const summaries = JSON.parse(jsonStr);
+    console.log(`Parsed ${summaries.length} summaries successfully`);
+
+    return papers.map((paper, i) => {
+      // Find matching summary by index or id
+      const summary = summaries[i] || summaries.find(s => s.id === i + 1) || {};
+
+      // Remove the 'id' field to avoid overwriting paper's arXiv ID
+      const { id: _, ...summaryFields } = summary;
+
+      return {
+        ...paper,
+        headline: summaryFields.headline || paper.title.slice(0, 60),
+        problem: summaryFields.problem || null,
+        approach: summaryFields.approach || null,
+        method: summaryFields.method || null,
+        findings: summaryFields.findings || null,
+        takeaway: summaryFields.takeaway || null,
+        tags: summaryFields.tags || paper.categories?.slice(0, 3) || []
+      };
+    });
   } catch (error) {
     console.error('Failed to parse batch response:', error.message);
+    console.error('Raw response:', content.slice(0, 500));
     return papers.map(p => ({ ...p, ...createFallback(p) }));
   }
 }
