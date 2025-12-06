@@ -22,25 +22,42 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 2000) {
   }
 }
 
-export async function summarizePaper(paper) {
-  const prompt = `You are summarizing an AI research paper for busy professionals. Create a brief, engaging summary.
+// Truncate abstract to save tokens
+function truncateAbstract(abstract, maxLength = 600) {
+  if (abstract.length <= maxLength) return abstract;
+  return abstract.slice(0, maxLength) + '...';
+}
 
-Paper Title: ${paper.title}
+// Create fallback summary for failed papers
+function createFallback(paper) {
+  return {
+    headline: paper.title.slice(0, 60),
+    summary: paper.abstract.slice(0, 200) + '...',
+    keyTakeaway: 'See the full paper for details.',
+    tags: paper.categories?.slice(0, 3) || []
+  };
+}
 
-Abstract: ${paper.abstract}
+// Batch summarize multiple papers in ONE API call (major token savings)
+async function summarizeBatch(papers) {
+  const papersText = papers.map((p, i) =>
+    `[${i + 1}] "${p.title}"\n${truncateAbstract(p.abstract)}`
+  ).join('\n\n');
 
-Provide a JSON response with:
-- "headline": A catchy 5-10 word headline that captures the key innovation (not the title)
-- "summary": 2-3 sentences explaining what they did and why it matters, written for someone who understands AI but is short on time
-- "keyTakeaway": One sentence starting with "Key takeaway:" about the practical implication
-- "tags": Array of 2-3 relevant tags (e.g., "LLM", "Vision", "Efficiency", "Training", "Benchmarks")
+  const prompt = `Summarize these ${papers.length} AI papers for busy professionals. Return a JSON array.
 
-Respond ONLY with valid JSON, no markdown.`;
+${papersText}
+
+For each paper return: {"id": 1, "headline": "5-10 word catchy headline", "summary": "2 sentences max", "keyTakeaway": "One practical implication", "tags": ["tag1", "tag2"]}
+
+Tags: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL, Safety
+
+Return ONLY a JSON array, no markdown.`;
 
   const response = await retryWithBackoff(() =>
     anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
+      model: 'claude-haiku-4-20250514',  // Haiku is ~10x cheaper
+      max_tokens: 150 * papers.length,    // ~150 tokens per paper
       messages: [{ role: 'user', content: prompt }]
     })
   );
@@ -48,54 +65,47 @@ Respond ONLY with valid JSON, no markdown.`;
   const content = response.content[0].text;
 
   try {
-    return JSON.parse(content);
-  } catch {
-    return {
-      headline: paper.title.slice(0, 60),
-      summary: paper.abstract.slice(0, 200) + '...',
-      keyTakeaway: 'See the full paper for details.',
-      tags: paper.categories.slice(0, 3)
-    };
+    const summaries = JSON.parse(content);
+    return papers.map((paper, i) => ({
+      ...paper,
+      ...(summaries[i] || summaries.find(s => s.id === i + 1) || createFallback(paper))
+    }));
+  } catch (error) {
+    console.error('Failed to parse batch response:', error.message);
+    return papers.map(p => ({ ...p, ...createFallback(p) }));
   }
 }
 
 export async function summarizePapers(papers) {
   const summaries = [];
-  const BATCH_SIZE = 3; // Process 3 papers at a time
-  const DELAY_BETWEEN_BATCHES = 1500; // 1.5 seconds between batches
+  const BATCH_SIZE = 5; // 5 papers per API call (1 call instead of 5!)
+  const DELAY_BETWEEN_BATCHES = 1000;
 
-  console.log(`Processing ${papers.length} papers in batches of ${BATCH_SIZE}...`);
+  console.log(`Processing ${papers.length} papers in batches of ${BATCH_SIZE} (token-optimized)...`);
 
   for (let i = 0; i < papers.length; i += BATCH_SIZE) {
     const batch = papers.slice(i, i + BATCH_SIZE);
 
-    const batchResults = await Promise.all(
-      batch.map(async (paper) => {
-        try {
-          const summary = await summarizePaper(paper);
-          return { ...paper, ...summary };
-        } catch (error) {
-          console.error(`Failed to summarize paper ${paper.id}:`, error.message);
-          // Return paper with fallback summary
-          return {
-            ...paper,
-            headline: paper.title.slice(0, 60),
-            summary: paper.abstract.slice(0, 200) + '...',
-            keyTakeaway: 'See the full paper for details.',
-            tags: paper.categories?.slice(0, 3) || []
-          };
-        }
-      })
-    );
+    try {
+      const batchResults = await summarizeBatch(batch);
+      summaries.push(...batchResults);
+    } catch (error) {
+      console.error(`Batch ${i / BATCH_SIZE + 1} failed:`, error.message);
+      summaries.push(...batch.map(p => ({ ...p, ...createFallback(p) })));
+    }
 
-    summaries.push(...batchResults);
     console.log(`Processed ${Math.min(i + BATCH_SIZE, papers.length)}/${papers.length} papers`);
 
-    // Wait between batches (except for the last batch)
     if (i + BATCH_SIZE < papers.length) {
       await delay(DELAY_BETWEEN_BATCHES);
     }
   }
 
   return summaries;
+}
+
+// Keep single paper function for potential future use
+export async function summarizePaper(paper) {
+  const results = await summarizeBatch([paper]);
+  return results[0];
 }
