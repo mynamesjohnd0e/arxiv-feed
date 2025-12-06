@@ -41,36 +41,22 @@ function createFallback(paper) {
   };
 }
 
-// Batch summarize multiple papers in ONE API call (major token savings)
-async function summarizeBatch(papers) {
-  const papersText = papers.map((p, i) =>
-    `[${i + 1}] "${p.title}"\n${truncateAbstract(p.abstract)}`
-  ).join('\n\n');
+// Summarize a single paper
+async function summarizeSingle(paper) {
+  const prompt = `Summarize this AI paper for LinkedIn sharing. Return JSON only.
 
-  const prompt = `Analyze these ${papers.length} AI/ML papers. Return a JSON array with structured summaries optimized for LinkedIn sharing.
+Title: ${paper.title}
+Abstract: ${truncateAbstract(paper.abstract)}
 
-${papersText}
+Return this exact JSON format:
+{"headline":"5-10 word catchy headline","problem":"What problem? (1 sentence)","approach":"How solved? (1 sentence)","method":"Key innovation (1 sentence)","findings":"Results (1 sentence)","takeaway":"Why it matters (1 sentence)","tags":["Tag1","Tag2"]}
 
-For each paper return:
-{
-  "id": 1,
-  "headline": "Catchy 5-10 word headline",
-  "problem": "One sentence: What problem does this solve?",
-  "approach": "One sentence: How do they solve it?",
-  "method": "One sentence: Key technical innovation",
-  "findings": "One sentence: Main results/impact",
-  "takeaway": "One sentence: Why this matters for practitioners",
-  "tags": ["tag1", "tag2"]
-}
-
-Keep each field concise (under 25 words). Tags: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL, Safety, Data
-
-Return ONLY a JSON array, no markdown.`;
+Tags to use: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL, Safety, Data`;
 
   const response = await retryWithBackoff(() =>
     anthropic.messages.create({
-      model: 'claude-haiku-4-20250514',  // Haiku is ~10x cheaper
-      max_tokens: 250 * papers.length,    // ~250 tokens per paper for richer summaries
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 300,
       messages: [{ role: 'user', content: prompt }]
     })
   );
@@ -80,69 +66,61 @@ Return ONLY a JSON array, no markdown.`;
   try {
     // Try to extract JSON from the response (handle markdown code blocks)
     let jsonStr = content;
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
+
+    // Try to find JSON object in the response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       jsonStr = jsonMatch[0];
     }
 
-    const summaries = JSON.parse(jsonStr);
-    console.log(`Parsed ${summaries.length} summaries successfully`);
+    const summary = JSON.parse(jsonStr);
+    console.log(`Parsed summary for: ${paper.title.slice(0, 50)}...`);
 
-    return papers.map((paper, i) => {
-      // Find matching summary by index or id
-      const summary = summaries[i] || summaries.find(s => s.id === i + 1) || {};
-
-      // Remove the 'id' field to avoid overwriting paper's arXiv ID
-      const { id: _, ...summaryFields } = summary;
-
-      return {
-        ...paper,
-        headline: summaryFields.headline || paper.title.slice(0, 60),
-        problem: summaryFields.problem || null,
-        approach: summaryFields.approach || null,
-        method: summaryFields.method || null,
-        findings: summaryFields.findings || null,
-        takeaway: summaryFields.takeaway || null,
-        tags: summaryFields.tags || paper.categories?.slice(0, 3) || []
-      };
-    });
+    return {
+      ...paper,
+      headline: summary.headline || paper.title.slice(0, 60),
+      problem: summary.problem || null,
+      approach: summary.approach || null,
+      method: summary.method || null,
+      findings: summary.findings || null,
+      takeaway: summary.takeaway || null,
+      tags: summary.tags || paper.categories?.slice(0, 3) || []
+    };
   } catch (error) {
-    console.error('Failed to parse batch response:', error.message);
-    console.error('Raw response:', content.slice(0, 500));
-    return papers.map(p => ({ ...p, ...createFallback(p) }));
+    console.error('Failed to parse response:', error.message);
+    console.error('Raw response:', content.slice(0, 300));
+    return { ...paper, ...createFallback(paper) };
   }
 }
 
 export async function summarizePapers(papers) {
   const summaries = [];
-  const BATCH_SIZE = 5; // 5 papers per API call (1 call instead of 5!)
-  const DELAY_BETWEEN_BATCHES = 1000;
+  const DELAY_BETWEEN_CALLS = 500; // 500ms between API calls
 
-  console.log(`Processing ${papers.length} papers in batches of ${BATCH_SIZE} (token-optimized)...`);
+  console.log(`Processing ${papers.length} papers individually...`);
 
-  for (let i = 0; i < papers.length; i += BATCH_SIZE) {
-    const batch = papers.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < papers.length; i++) {
+    const paper = papers[i];
 
     try {
-      const batchResults = await summarizeBatch(batch);
-      summaries.push(...batchResults);
+      const result = await summarizeSingle(paper);
+      summaries.push(result);
     } catch (error) {
-      console.error(`Batch ${i / BATCH_SIZE + 1} failed:`, error.message);
-      summaries.push(...batch.map(p => ({ ...p, ...createFallback(p) })));
+      console.error(`Paper ${i + 1} failed:`, error.message);
+      summaries.push({ ...paper, ...createFallback(paper) });
     }
 
-    console.log(`Processed ${Math.min(i + BATCH_SIZE, papers.length)}/${papers.length} papers`);
+    console.log(`Processed ${i + 1}/${papers.length} papers`);
 
-    if (i + BATCH_SIZE < papers.length) {
-      await delay(DELAY_BETWEEN_BATCHES);
+    if (i < papers.length - 1) {
+      await delay(DELAY_BETWEEN_CALLS);
     }
   }
 
   return summaries;
 }
 
-// Keep single paper function for potential future use
+// Single paper summarization export
 export async function summarizePaper(paper) {
-  const results = await summarizeBatch([paper]);
-  return results[0];
+  return await summarizeSingle(paper);
 }
