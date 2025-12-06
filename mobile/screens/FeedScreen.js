@@ -9,16 +9,11 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// For physical devices, use your computer's local IP
-const API_URL = Platform.select({
-  android: 'http://192.168.99.156:3001',
-  ios: 'http://localhost:3001',
-  default: 'http://localhost:3001',
-});
+// Production API URL
+const API_URL = 'https://arxiv-feed-production.up.railway.app';
 
 const CATEGORIES = [
   { id: '', name: 'All' },
