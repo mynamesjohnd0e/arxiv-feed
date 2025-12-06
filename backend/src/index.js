@@ -51,7 +51,7 @@ app.get('/api/feed', async (req, res) => {
         papers = cached.papers;
       } else {
         console.log(`Performing live arXiv search for: ${search}`);
-        const rawPapers = await fetchArxivPapers({ search, maxResults: 20 });
+        const rawPapers = await fetchArxivPapers({ search, maxResults: 10 });
 
         if (rawPapers.length > 0) {
           console.log(`Summarizing ${rawPapers.length} search results with Claude...`);
@@ -69,7 +69,7 @@ app.get('/api/feed', async (req, res) => {
         papers = cached.papers;
       } else {
         console.log(`Fetching papers for category: ${category}`);
-        const rawPapers = await fetchArxivPapers({ category: CATEGORY_MAP[category], maxResults: 20 });
+        const rawPapers = await fetchArxivPapers({ category: CATEGORY_MAP[category], maxResults: 10 });
 
         if (rawPapers.length > 0) {
           console.log(`Summarizing ${rawPapers.length} category results with Claude...`);
@@ -83,7 +83,7 @@ app.get('/api/feed', async (req, res) => {
 
       if (needsRefresh) {
         console.log('Fetching fresh papers from arXiv...');
-        const rawPapers = await fetchArxivPapers({ maxResults: 30 });
+        const rawPapers = await fetchArxivPapers({ maxResults: 15 });
 
         console.log(`Summarizing ${rawPapers.length} papers with Claude...`);
         cachedFeed = await summarizePapers(rawPapers);
