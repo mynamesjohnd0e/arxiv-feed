@@ -32,6 +32,10 @@ function PaperCard({ paper, onPress }) {
     Efficiency: '#f59e0b',
     Training: '#ef4444',
     Benchmarks: '#6366f1',
+    Multimodal: '#ec4899',
+    RL: '#14b8a6',
+    Safety: '#f97316',
+    Data: '#06b6d4',
     default: '#64748b',
   };
 
@@ -54,9 +58,23 @@ function PaperCard({ paper, onPress }) {
           ))}
         </View>
 
-        <Text style={styles.summary}>{paper.summary}</Text>
+        {paper.problem && (
+          <View style={styles.structuredSection}>
+            <Text style={styles.sectionLabel}>Problem</Text>
+            <Text style={styles.sectionText}>{paper.problem}</Text>
+          </View>
+        )}
 
-        <Text style={styles.keyTakeaway}>{paper.keyTakeaway}</Text>
+        {paper.findings && (
+          <View style={styles.structuredSection}>
+            <Text style={styles.sectionLabel}>Key Finding</Text>
+            <Text style={styles.sectionText}>{paper.findings}</Text>
+          </View>
+        )}
+
+        {paper.takeaway && (
+          <Text style={styles.keyTakeaway}>{paper.takeaway}</Text>
+        )}
 
         <View style={styles.metadata}>
           <Text style={styles.authors} numberOfLines={1}>
@@ -69,7 +87,7 @@ function PaperCard({ paper, onPress }) {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.tapHint}>Tap for details</Text>
+          <Text style={styles.tapHint}>Tap for details & share</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -368,6 +386,22 @@ const styles = StyleSheet.create({
     color: '#c0c0d0',
     lineHeight: 22,
     marginBottom: 12,
+  },
+  structuredSection: {
+    marginBottom: 10,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#8b5cf6',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  sectionText: {
+    fontSize: 14,
+    color: '#c0c0d0',
+    lineHeight: 20,
   },
   keyTakeaway: {
     fontSize: 14,

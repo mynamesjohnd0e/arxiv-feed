@@ -32,8 +32,11 @@ function truncateAbstract(abstract, maxLength = 600) {
 function createFallback(paper) {
   return {
     headline: paper.title.slice(0, 60),
-    summary: paper.abstract.slice(0, 200) + '...',
-    keyTakeaway: 'See the full paper for details.',
+    problem: 'See abstract for problem statement.',
+    approach: 'See abstract for methodology.',
+    method: 'See abstract for technical details.',
+    findings: 'See abstract for key results.',
+    takeaway: 'Read the full paper for insights.',
     tags: paper.categories?.slice(0, 3) || []
   };
 }
@@ -44,20 +47,30 @@ async function summarizeBatch(papers) {
     `[${i + 1}] "${p.title}"\n${truncateAbstract(p.abstract)}`
   ).join('\n\n');
 
-  const prompt = `Summarize these ${papers.length} AI papers for busy professionals. Return a JSON array.
+  const prompt = `Analyze these ${papers.length} AI/ML papers. Return a JSON array with structured summaries optimized for LinkedIn sharing.
 
 ${papersText}
 
-For each paper return: {"id": 1, "headline": "5-10 word catchy headline", "summary": "2 sentences max", "keyTakeaway": "One practical implication", "tags": ["tag1", "tag2"]}
+For each paper return:
+{
+  "id": 1,
+  "headline": "Catchy 5-10 word headline",
+  "problem": "One sentence: What problem does this solve?",
+  "approach": "One sentence: How do they solve it?",
+  "method": "One sentence: Key technical innovation",
+  "findings": "One sentence: Main results/impact",
+  "takeaway": "One sentence: Why this matters for practitioners",
+  "tags": ["tag1", "tag2"]
+}
 
-Tags: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL, Safety
+Keep each field concise (under 25 words). Tags: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL, Safety, Data
 
 Return ONLY a JSON array, no markdown.`;
 
   const response = await retryWithBackoff(() =>
     anthropic.messages.create({
       model: 'claude-haiku-4-20250514',  // Haiku is ~10x cheaper
-      max_tokens: 150 * papers.length,    // ~150 tokens per paper
+      max_tokens: 250 * papers.length,    // ~250 tokens per paper for richer summaries
       messages: [{ role: 'user', content: prompt }]
     })
   );
