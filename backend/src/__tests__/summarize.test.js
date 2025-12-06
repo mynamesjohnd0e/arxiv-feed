@@ -12,8 +12,11 @@ const mockClaudeResponse = {
   content: [{
     text: JSON.stringify({
       headline: 'New ML Method Boosts Performance',
-      summary: 'Researchers developed a novel machine learning approach that significantly improves model performance across benchmarks.',
-      keyTakeaway: 'Key takeaway: This technique could reduce training time by 50%.',
+      problem: 'Current ML methods are slow and inefficient.',
+      approach: 'A novel optimization technique was developed.',
+      method: 'Uses gradient-free optimization.',
+      findings: 'Achieves 50% faster training.',
+      takeaway: 'This technique could revolutionize ML training.',
       tags: ['LLM', 'Efficiency', 'Training'],
     }),
   }],
@@ -77,8 +80,9 @@ describe('summarize module', () => {
 
       expect(result).toMatchObject({
         headline: 'New ML Method Boosts Performance',
-        summary: expect.stringContaining('novel machine learning'),
-        keyTakeaway: expect.stringContaining('Key takeaway'),
+        problem: expect.stringContaining('slow and inefficient'),
+        approach: expect.stringContaining('optimization technique'),
+        takeaway: expect.stringContaining('revolutionize'),
         tags: expect.arrayContaining(['LLM', 'Efficiency']),
       });
     });
@@ -90,7 +94,7 @@ describe('summarize module', () => {
       const result = await summarizePaper(mockPaper);
 
       expect(result.headline).toBe(mockPaper.title.slice(0, 60));
-      expect(result.summary).toContain('...');
+      expect(result.problem).toContain('See abstract');
     });
   });
 

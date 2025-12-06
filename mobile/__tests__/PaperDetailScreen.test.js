@@ -17,8 +17,11 @@ const mockPaper = {
   id: '2401.00001v1',
   title: 'Test Paper: A Novel Approach to Machine Learning',
   headline: 'New ML Method Boosts Performance',
-  summary: 'Researchers developed a novel machine learning approach that significantly improves model performance across benchmarks.',
-  keyTakeaway: 'Key takeaway: This technique could reduce training time by 50%.',
+  problem: 'Current ML methods are slow and inefficient.',
+  approach: 'A novel optimization technique was developed.',
+  method: 'Uses gradient-free optimization.',
+  findings: 'Achieves 50% faster training.',
+  takeaway: 'This technique could reduce training time by 50%.',
   tags: ['LLM', 'Efficiency', 'Training'],
   authors: ['John Doe', 'Jane Smith', 'Bob Wilson'],
   categories: ['cs.LG', 'cs.AI'],
@@ -62,16 +65,17 @@ describe('PaperDetailScreen', () => {
     expect(getByText('Training')).toBeTruthy();
   });
 
-  it('renders AI summary section', () => {
+  it('renders AI summary section with structured fields', () => {
     const { getByText } = render(
       <PaperDetailScreen route={mockRoute} navigation={mockNavigation} />
     );
 
-    expect(getByText('AI Summary')).toBeTruthy();
-    expect(getByText(/novel machine learning approach/)).toBeTruthy();
+    expect(getByText('AI-GENERATED SUMMARY')).toBeTruthy();
+    expect(getByText('PROBLEM')).toBeTruthy();
+    expect(getByText(/slow and inefficient/)).toBeTruthy();
   });
 
-  it('renders key takeaway', () => {
+  it('renders takeaway', () => {
     const { getByText } = render(
       <PaperDetailScreen route={mockRoute} navigation={mockNavigation} />
     );
