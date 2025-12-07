@@ -3,6 +3,11 @@ import express from 'express';
 import cors from 'cors';
 import { fetchArxivPapers } from './arxiv.js';
 import { summarizePapers } from './summarize.js';
+import { findSimilarPapers } from './similarity.js';
+import { getRecentPapers, getPaper, savePapersBatch, getPaperCount } from './db.js';
+
+// Check if DynamoDB is configured
+const USE_DYNAMODB = !!(process.env.AWS_ACCESS_KEY_ID && process.env.DYNAMODB_TABLE);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -78,17 +83,44 @@ app.get('/api/feed', async (req, res) => {
         }
       }
     } else {
-      // Default feed - use main cache
+      // Default feed - use L1 memory cache, L2 DynamoDB, L3 live fetch
       const needsRefresh = refresh || cachedFeed.length === 0 || (now - lastFetchTime > CACHE_DURATION);
 
       if (needsRefresh) {
-        console.log('Fetching fresh papers from arXiv...');
-        const rawPapers = await fetchArxivPapers({ maxResults: 15 });
+        if (USE_DYNAMODB) {
+          // Try DynamoDB first
+          console.log('Fetching papers from DynamoDB...');
+          try {
+            cachedFeed = await getRecentPapers(50);
+            if (cachedFeed.length > 0) {
+              lastFetchTime = now;
+              console.log(`Loaded ${cachedFeed.length} papers from DynamoDB`);
+            }
+          } catch (dbError) {
+            console.error('DynamoDB fetch failed:', dbError.message);
+          }
+        }
 
-        console.log(`Summarizing ${rawPapers.length} papers with Claude...`);
-        cachedFeed = await summarizePapers(rawPapers);
-        lastFetchTime = now;
-        console.log('Feed updated successfully');
+        // Fallback to live fetch if DB is empty or not configured
+        if (cachedFeed.length === 0) {
+          console.log('Fetching fresh papers from arXiv...');
+          const rawPapers = await fetchArxivPapers({ maxResults: 15 });
+
+          console.log(`Summarizing ${rawPapers.length} papers with Claude...`);
+          cachedFeed = await summarizePapers(rawPapers);
+          lastFetchTime = now;
+          console.log('Feed updated successfully');
+
+          // Save to DynamoDB for future requests
+          if (USE_DYNAMODB && cachedFeed.length > 0) {
+            try {
+              await savePapersBatch(cachedFeed);
+              console.log('Saved papers to DynamoDB');
+            } catch (dbError) {
+              console.error('Failed to save to DynamoDB:', dbError.message);
+            }
+          }
+        }
       }
       papers = cachedFeed;
     }
@@ -123,7 +155,18 @@ app.get('/api/categories', (req, res) => {
 
 // Get a single paper by ID
 app.get('/api/paper/:id', async (req, res) => {
-  const paper = cachedFeed.find(p => p.id === req.params.id);
+  // Check memory cache first
+  let paper = cachedFeed.find(p => p.id === req.params.id);
+
+  // Try DynamoDB if not in cache
+  if (!paper && USE_DYNAMODB) {
+    try {
+      paper = await getPaper(req.params.id);
+    } catch (dbError) {
+      console.error('DynamoDB lookup failed:', dbError.message);
+    }
+  }
+
   if (paper) {
     res.json(paper);
   } else {
@@ -131,9 +174,36 @@ app.get('/api/paper/:id', async (req, res) => {
   }
 });
 
+// Get similar papers
+app.get('/api/paper/:id/similar', (req, res) => {
+  const paper = cachedFeed.find(p => p.id === req.params.id);
+
+  if (!paper) {
+    return res.status(404).json({ error: 'Paper not found' });
+  }
+
+  const similar = findSimilarPapers(paper, cachedFeed, 3);
+  res.json({ similar });
+});
+
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', cachedPapers: cachedFeed.length });
+app.get('/api/health', async (req, res) => {
+  const health = {
+    status: 'ok',
+    cachedPapers: cachedFeed.length,
+    dynamodb: USE_DYNAMODB ? 'configured' : 'not configured',
+  };
+
+  if (USE_DYNAMODB) {
+    try {
+      health.dbPaperCount = await getPaperCount();
+    } catch (err) {
+      health.dynamodb = 'error';
+      health.dbError = err.message;
+    }
+  }
+
+  res.json(health);
 });
 
 app.listen(PORT, () => {

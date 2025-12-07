@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,13 +7,37 @@ import {
   TouchableOpacity,
   Linking,
   Share,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
 
+const API_URL = 'https://arxiv-feed-production.up.railway.app';
+
 export default function PaperDetailScreen({ route, navigation }) {
   const { paper } = route.params;
+  const [similarPapers, setSimilarPapers] = useState([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(true);
+
+  useEffect(() => {
+    const fetchSimilar = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/paper/${paper.id}/similar`);
+        const data = await response.json();
+        setSimilarPapers(data.similar || []);
+      } catch (error) {
+        console.log('Could not fetch similar papers');
+      } finally {
+        setLoadingSimilar(false);
+      }
+    };
+    fetchSimilar();
+  }, [paper.id]);
+
+  const openSimilarPaper = (similarPaper) => {
+    navigation.push('PaperDetail', { paper: similarPaper });
+  };
 
   const openPDF = async () => {
     if (paper.pdfUrl) {
@@ -147,6 +171,43 @@ ${tags} #AI #Research #MachineLearning`;
             </TouchableOpacity>
           </View>
         </View>
+
+        {(loadingSimilar || similarPapers.length > 0) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Similar Papers</Text>
+            {loadingSimilar ? (
+              <ActivityIndicator size="small" color="#8b5cf6" />
+            ) : (
+              similarPapers.map((sp) => (
+                <TouchableOpacity
+                  key={sp.id}
+                  style={styles.similarCard}
+                  onPress={() => openSimilarPaper(sp)}
+                >
+                  <View style={styles.similarContent}>
+                    <Text style={styles.similarHeadline} numberOfLines={2}>
+                      {sp.headline}
+                    </Text>
+                    <View style={styles.similarTags}>
+                      {sp.tags?.slice(0, 2).map((tag, i) => (
+                        <View
+                          key={i}
+                          style={[
+                            styles.smallTag,
+                            { backgroundColor: tagColors[tag] || tagColors.default }
+                          ]}
+                        >
+                          <Text style={styles.smallTagText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                  <Text style={styles.arrowIcon}>›</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Original Title</Text>
@@ -386,5 +447,44 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  similarCard: {
+    backgroundColor: '#252538',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderLeftWidth: 3,
+    borderLeftColor: '#8b5cf6',
+  },
+  similarContent: {
+    flex: 1,
+  },
+  similarHeadline: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  similarTags: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  smallTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  smallTagText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  arrowIcon: {
+    fontSize: 24,
+    color: '#8b5cf6',
+    marginLeft: 8,
   },
 });

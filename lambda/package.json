@@ -1,0 +1,13 @@
+{
+  "name": "arxiv-feed-batch-processor",
+  "version": "1.0.0",
+  "description": "Lambda batch processor for arXiv paper summarization",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0",
+    "xml2js": "^0.6.2"
+  }
+}
