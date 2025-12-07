@@ -9,7 +9,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE || 'arxiv-papers';
-const MAX_PAPERS = 50; // Scope limit for initial rollout
+const DEFAULT_LIMIT = 50; // Default limit for API responses
 
 const client = new DynamoDBClient({
   region: process.env.AWS_REGION || 'us-east-1',
@@ -104,18 +104,45 @@ export async function paperExists(paperId) {
 /**
  * Get recent papers sorted by publication date (newest first)
  * Limited to MAX_PAPERS for initial rollout
+ * @param {number} limit - Max papers to return
+ * @param {boolean} includeEmbeddings - Whether to include embedding vectors (default: true)
  */
-export async function getRecentPapers(limit = MAX_PAPERS) {
+export async function getRecentPapers(limit = DEFAULT_LIMIT, includeEmbeddings = true) {
   const result = await docClient.send(new QueryCommand({
     TableName: TABLE_NAME,
     IndexName: 'published-index',
     KeyConditionExpression: 'pk = :pk',
     ExpressionAttributeValues: { ':pk': 'PAPER' },
     ScanIndexForward: false, // Descending order (newest first)
-    Limit: Math.min(limit, MAX_PAPERS),
+    Limit: limit,
   }));
 
   // Strip DynamoDB-specific fields
+  return (result.Items || []).map(item => {
+    const { pk, sk, ttl, summarizedAt, ...paper } = item;
+    // Optionally strip embeddings to reduce payload size for client responses
+    if (!includeEmbeddings) {
+      delete paper.embedding;
+    }
+    return paper;
+  });
+}
+
+/**
+ * Get all papers with embeddings for similarity search
+ */
+export async function getPapersWithEmbeddings(limit = DEFAULT_LIMIT) {
+  const result = await docClient.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    IndexName: 'published-index',
+    KeyConditionExpression: 'pk = :pk',
+    ExpressionAttributeValues: { ':pk': 'PAPER' },
+    ScanIndexForward: false,
+    Limit: limit,
+    // Only fetch papers that have embeddings
+    FilterExpression: 'attribute_exists(embedding)',
+  }));
+
   return (result.Items || []).map(item => {
     const { pk, sk, ttl, summarizedAt, ...paper } = item;
     return paper;

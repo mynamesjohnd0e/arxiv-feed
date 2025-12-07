@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { generatePaperEmbedding } from './embeddings.js';
 
 const anthropic = new Anthropic();
 
@@ -76,7 +77,7 @@ Tags to use: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL,
     const summary = JSON.parse(jsonStr);
     console.log(`Parsed summary for: ${paper.title.slice(0, 50)}...`);
 
-    return {
+    const summarizedPaper = {
       ...paper,
       headline: summary.headline || paper.title.slice(0, 60),
       problem: summary.problem || null,
@@ -86,10 +87,29 @@ Tags to use: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL,
       takeaway: summary.takeaway || null,
       tags: summary.tags || paper.categories?.slice(0, 3) || []
     };
+
+    // Generate embedding using Bedrock Titan
+    try {
+      summarizedPaper.embedding = await generatePaperEmbedding(paper);
+      console.log(`Generated embedding for: ${paper.title.slice(0, 40)}...`);
+    } catch (embErr) {
+      console.error('Failed to generate embedding:', embErr.message);
+    }
+
+    return summarizedPaper;
   } catch (error) {
     console.error('Failed to parse response:', error.message);
     console.error('Raw response:', content.slice(0, 300));
-    return { ...paper, ...createFallback(paper) };
+    const fallbackPaper = { ...paper, ...createFallback(paper) };
+
+    // Still try to generate embedding for fallback papers
+    try {
+      fallbackPaper.embedding = await generatePaperEmbedding(paper);
+    } catch (embErr) {
+      console.error('Failed to generate embedding:', embErr.message);
+    }
+
+    return fallbackPaper;
   }
 }
 

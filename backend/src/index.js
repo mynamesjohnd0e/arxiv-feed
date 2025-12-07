@@ -4,7 +4,8 @@ import cors from 'cors';
 import { fetchArxivPapers } from './arxiv.js';
 import { summarizePapers } from './summarize.js';
 import { findSimilarPapers } from './similarity.js';
-import { getRecentPapers, getPaper, savePapersBatch, getPaperCount } from './db.js';
+import { getRecentPapers, getPaper, savePapersBatch, getPaperCount, getPapersWithEmbeddings } from './db.js';
+import { semanticSearch, summarizeSearchResults } from './semantic-search.js';
 
 // Check if DynamoDB is configured
 const USE_DYNAMODB = !!(process.env.AWS_ACCESS_KEY_ID && process.env.DYNAMODB_TABLE);
@@ -128,8 +129,14 @@ app.get('/api/feed', async (req, res) => {
     const start = page * limit;
     const paginatedFeed = papers.slice(start, start + limit);
 
+    // Strip embeddings from client response (large vectors not needed by mobile app)
+    const clientPapers = paginatedFeed.map(p => {
+      const { embedding, ...paperWithoutEmbedding } = p;
+      return paperWithoutEmbedding;
+    });
+
     res.json({
-      papers: paginatedFeed,
+      papers: clientPapers,
       page,
       totalPapers: papers.length,
       hasMore: start + limit < papers.length
@@ -174,16 +181,109 @@ app.get('/api/paper/:id', async (req, res) => {
   }
 });
 
-// Get similar papers
-app.get('/api/paper/:id/similar', (req, res) => {
-  const paper = cachedFeed.find(p => p.id === req.params.id);
+// Get similar papers using embedding similarity
+app.get('/api/paper/:id/similar', async (req, res) => {
+  try {
+    // Check memory cache first
+    let paper = cachedFeed.find(p => p.id === req.params.id);
 
-  if (!paper) {
-    return res.status(404).json({ error: 'Paper not found' });
+    // Try DynamoDB if not in cache
+    if (!paper && USE_DYNAMODB) {
+      try {
+        paper = await getPaper(req.params.id);
+      } catch (dbError) {
+        console.error('DynamoDB lookup failed:', dbError.message);
+      }
+    }
+
+    if (!paper) {
+      return res.status(404).json({ error: 'Paper not found' });
+    }
+
+    // Get papers with embeddings for similarity search
+    let papersPool = cachedFeed;
+    if (USE_DYNAMODB && paper.embedding) {
+      // If we have embeddings, fetch from DB to get full embedding pool
+      try {
+        papersPool = await getPapersWithEmbeddings(50);
+      } catch (dbError) {
+        console.error('Failed to fetch embeddings pool:', dbError.message);
+      }
+    }
+
+    const similar = findSimilarPapers(paper, papersPool, 3);
+    res.json({
+      similar,
+      method: similar[0]?.similarityMethod || 'none',
+    });
+  } catch (error) {
+    console.error('Error finding similar papers:', error);
+    res.status(500).json({ error: 'Failed to find similar papers' });
   }
+});
 
-  const similar = findSimilarPapers(paper, cachedFeed, 3);
-  res.json({ similar });
+// Semantic search endpoint - LLM-powered paper search
+app.post('/api/search', async (req, res) => {
+  try {
+    const { query, limit = 10, includeSummary = false } = req.body;
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'missing_query',
+        message: 'Please provide a search query.'
+      });
+    }
+
+    // Limit query length to prevent abuse
+    if (query.length > 500) {
+      return res.status(400).json({
+        success: false,
+        error: 'query_too_long',
+        message: 'Search query must be under 500 characters.'
+      });
+    }
+
+    // Get papers with embeddings for semantic search
+    let papers = cachedFeed.filter(p => p.embedding);
+
+    // If we have DynamoDB and not enough papers in cache, fetch from DB
+    if (USE_DYNAMODB && papers.length < 50) {
+      try {
+        papers = await getPapersWithEmbeddings(100);
+        console.log(`Loaded ${papers.length} papers with embeddings for search`);
+      } catch (dbError) {
+        console.error('Failed to fetch papers for search:', dbError.message);
+      }
+    }
+
+    if (papers.length === 0) {
+      return res.json({
+        success: true,
+        query,
+        message: 'No papers available for semantic search. Run the batch processor first.',
+        papers: []
+      });
+    }
+
+    // Perform semantic search
+    console.log(`Semantic search: "${query.slice(0, 50)}..." across ${papers.length} papers`);
+    const results = await semanticSearch(query, papers, Math.min(limit, 20));
+
+    // Add optional natural language summary
+    if (includeSummary && results.success && results.papers.length > 0) {
+      results.summary = await summarizeSearchResults(results.query, results.papers);
+    }
+
+    res.json(results);
+  } catch (error) {
+    console.error('Semantic search error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'search_failed',
+      message: 'Search failed. Please try again.'
+    });
+  }
 });
 
 // Health check

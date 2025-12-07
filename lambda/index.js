@@ -43,10 +43,11 @@ export const handler = async (event) => {
       };
     }
 
-    // 4. Summarize new papers with Claude
-    console.log(`Summarizing ${newPapers.length} papers with Claude...`);
+    // 4. Summarize new papers with Claude and generate embeddings with Bedrock
+    console.log(`Summarizing ${newPapers.length} papers with Claude and generating embeddings...`);
     const summarizedPapers = await summarizePapers(newPapers);
-    console.log(`Successfully summarized ${summarizedPapers.length} papers`);
+    const withEmbeddings = summarizedPapers.filter(p => p.embedding).length;
+    console.log(`Successfully summarized ${summarizedPapers.length} papers (${withEmbeddings} with embeddings)`);
 
     // 5. Save to DynamoDB
     console.log('Saving papers to DynamoDB...');
@@ -58,6 +59,7 @@ export const handler = async (event) => {
       body: JSON.stringify({
         message: 'Batch processing complete',
         processed: summarizedPapers.length,
+        withEmbeddings,
         skipped: existingIds.size,
         total: rawPapers.length,
       }),

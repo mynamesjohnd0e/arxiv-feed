@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { generatePaperEmbedding } from './embeddings.js';
 
 const anthropic = new Anthropic();
+
+// Check if Bedrock is configured for embeddings
+const USE_EMBEDDINGS = !!process.env.AWS_ACCESS_KEY_ID;
 
 // Delay helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -49,9 +53,9 @@ Title: ${paper.title}
 Abstract: ${truncateAbstract(paper.abstract)}
 
 Return this exact JSON format:
-{"headline":"5-10 word catchy headline","problem":"What problem? (1 sentence)","approach":"How solved? (1 sentence)","method":"Key innovation (1 sentence)","findings":"Results (1 sentence)","takeaway":"Why it matters (1 sentence)","tags":["Tag1","Tag2"]}
+{"headline":"5-15 word catchy headline","problem":"What problem? (2 sentences)","approach":"How solved? (2 sentences)","method":"Key innovation (2-3 sentences)","findings":"Results (2-3 sentences)","takeaway":"Why it matters (2 sentences)","tags":["Tag1","Tag2"]}
 
-Tags to use: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL, Safety, Data`;
+Tags to use: LLM, Vision, NLP, Deep Learning, Training, Benchmarks, Multimodal, Reinforcement Learning;
 
   const response = await retryWithBackoff(() =>
     anthropic.messages.create({
@@ -76,7 +80,7 @@ Tags to use: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL,
     const summary = JSON.parse(jsonStr);
     console.log(`Parsed summary for: ${paper.title.slice(0, 50)}...`);
 
-    return {
+    const summarizedPaper = {
       ...paper,
       headline: summary.headline || paper.title.slice(0, 60),
       problem: summary.problem || null,
@@ -86,10 +90,32 @@ Tags to use: LLM, Vision, NLP, Efficiency, Training, Benchmarks, Multimodal, RL,
       takeaway: summary.takeaway || null,
       tags: summary.tags || paper.categories?.slice(0, 3) || []
     };
+
+    // Generate embedding if Bedrock is configured
+    if (USE_EMBEDDINGS) {
+      try {
+        summarizedPaper.embedding = await generatePaperEmbedding(paper);
+      } catch (embErr) {
+        console.error('Failed to generate embedding:', embErr.message);
+      }
+    }
+
+    return summarizedPaper;
   } catch (error) {
     console.error('Failed to parse response:', error.message);
     console.error('Raw response:', content.slice(0, 300));
-    return { ...paper, ...createFallback(paper) };
+    const fallbackPaper = { ...paper, ...createFallback(paper) };
+
+    // Still try to generate embedding for fallback papers
+    if (USE_EMBEDDINGS) {
+      try {
+        fallbackPaper.embedding = await generatePaperEmbedding(paper);
+      } catch (embErr) {
+        console.error('Failed to generate embedding:', embErr.message);
+      }
+    }
+
+    return fallbackPaper;
   }
 }
 

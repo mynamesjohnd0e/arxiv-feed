@@ -24,6 +24,11 @@ const CATEGORIES = [
   { id: 'neural', name: 'Neural' },
 ];
 
+const SEARCH_MODES = [
+  { id: 'keyword', name: 'Keyword', icon: '🔍' },
+  { id: 'semantic', name: 'AI Search', icon: '🧠' },
+];
+
 function PaperCard({ paper, onPress }) {
   const tagColors = {
     LLM: '#8b5cf6',
@@ -81,9 +86,16 @@ function PaperCard({ paper, onPress }) {
             {paper.authors?.slice(0, 3).join(', ')}
             {paper.authors?.length > 3 ? ' et al.' : ''}
           </Text>
-          <Text style={styles.date}>
-            {new Date(paper.published).toLocaleDateString()}
-          </Text>
+          <View style={styles.metadataRight}>
+            {paper.relevanceScore && (
+              <Text style={styles.relevanceScore}>
+                {Math.round(paper.relevanceScore * 100)}% match
+              </Text>
+            )}
+            <Text style={styles.date}>
+              {new Date(paper.published).toLocaleDateString()}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.footer}>
@@ -103,6 +115,9 @@ export default function FeedScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [searchMode, setSearchMode] = useState('keyword');
+  const [searchSummary, setSearchSummary] = useState('');
+  const [searchError, setSearchError] = useState('');
 
   const fetchPapers = useCallback(async (pageNum = 0, refresh = false, search = activeSearch, category = selectedCategory) => {
     try {
@@ -151,8 +166,61 @@ export default function FeedScreen({ navigation }) {
     }
   };
 
+  const handleSemanticSearch = async (query) => {
+    setLoading(true);
+    setSearchError('');
+    setSearchSummary('');
+    setPapers([]);
+    setHasMore(false);
+
+    try {
+      const response = await fetch(`${API_URL}/api/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query,
+          limit: 15,
+          includeSummary: true,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        setSearchError(data.message || 'Search failed');
+        setPapers([]);
+      } else {
+        setPapers(data.papers || []);
+        setSearchSummary(data.summary || '');
+        if (data.papers?.length === 0) {
+          setSearchError('No papers found matching your query. Try different terms.');
+        }
+      }
+    } catch (error) {
+      console.error('Semantic search error:', error);
+      setSearchError('Search failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSearch = () => {
-    setActiveSearch(searchQuery);
+    if (!searchQuery.trim()) return;
+
+    if (searchMode === 'semantic') {
+      handleSemanticSearch(searchQuery);
+    } else {
+      setActiveSearch(searchQuery);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setActiveSearch('');
+    setSearchError('');
+    setSearchSummary('');
+    setHasMore(true);
+    fetchPapers(0);
   };
 
   const handleCategorySelect = (categoryId) => {
@@ -173,41 +241,95 @@ export default function FeedScreen({ navigation }) {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search papers, authors, topics..."
+          placeholder={searchMode === 'semantic'
+            ? "Describe what papers you're looking for..."
+            : "Search papers, authors, topics..."}
           placeholderTextColor="#606070"
           value={searchQuery}
           onChangeText={setSearchQuery}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
+          multiline={searchMode === 'semantic'}
+          numberOfLines={searchMode === 'semantic' ? 2 : 1}
         />
         <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-          <Text style={styles.searchButtonText}>Search</Text>
+          <Text style={styles.searchButtonText}>
+            {searchMode === 'semantic' ? '🧠' : '🔍'}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.filterContainer}>
+      <View style={styles.searchModeContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {CATEGORIES.map((cat) => (
+          {SEARCH_MODES.map((mode) => (
             <TouchableOpacity
-              key={cat.id}
+              key={mode.id}
               style={[
-                styles.filterChip,
-                selectedCategory === cat.id && styles.filterChipActive,
+                styles.searchModeChip,
+                searchMode === mode.id && styles.searchModeChipActive,
               ]}
-              onPress={() => handleCategorySelect(cat.id)}
+              onPress={() => {
+                setSearchMode(mode.id);
+                setSearchError('');
+                setSearchSummary('');
+              }}
             >
+              <Text style={styles.searchModeIcon}>{mode.icon}</Text>
               <Text
                 style={[
-                  styles.filterChipText,
-                  selectedCategory === cat.id && styles.filterChipTextActive,
+                  styles.searchModeText,
+                  searchMode === mode.id && styles.searchModeTextActive,
                 ]}
               >
-                {cat.name}
+                {mode.name}
               </Text>
             </TouchableOpacity>
           ))}
+          {(activeSearch || searchSummary) && (
+            <TouchableOpacity style={styles.clearButton} onPress={clearSearch}>
+              <Text style={styles.clearButtonText}>✕ Clear</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </View>
+
+      {searchMode === 'keyword' && (
+        <View style={styles.filterContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
+                style={[
+                  styles.filterChip,
+                  selectedCategory === cat.id && styles.filterChipActive,
+                ]}
+                onPress={() => handleCategorySelect(cat.id)}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selectedCategory === cat.id && styles.filterChipTextActive,
+                  ]}
+                >
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {searchSummary && (
+        <View style={styles.summaryContainer}>
+          <Text style={styles.summaryText}>{searchSummary}</Text>
+        </View>
+      )}
+
+      {searchError && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{searchError}</Text>
+        </View>
+      )}
 
       {loading && papers.length === 0 ? (
         <View style={styles.loadingContainer}>
@@ -312,13 +434,86 @@ const styles = StyleSheet.create({
   },
   searchButton: {
     backgroundColor: '#8b5cf6',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderRadius: 12,
     justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 50,
   },
   searchButtonText: {
     color: '#ffffff',
     fontWeight: '600',
+    fontSize: 18,
+  },
+  searchModeContainer: {
+    paddingLeft: 16,
+    marginBottom: 8,
+  },
+  searchModeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a2e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a3e',
+  },
+  searchModeChipActive: {
+    backgroundColor: '#2d1f5e',
+    borderColor: '#8b5cf6',
+  },
+  searchModeIcon: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  searchModeText: {
+    color: '#a0a0b0',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  searchModeTextActive: {
+    color: '#ffffff',
+  },
+  clearButton: {
+    backgroundColor: '#3a2a2e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  clearButtonText: {
+    color: '#ef4444',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  summaryContainer: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: '#1a2a1e',
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#10b981',
+  },
+  summaryText: {
+    color: '#a0d0b0',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  errorContainer: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: '#2a1a1e',
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#ef4444',
+  },
+  errorText: {
+    color: '#f0a0a0',
+    fontSize: 14,
   },
   filterContainer: {
     paddingLeft: 16,
@@ -424,6 +619,20 @@ const styles = StyleSheet.create({
     color: '#808090',
     flex: 1,
     marginRight: 8,
+  },
+  metadataRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  relevanceScore: {
+    fontSize: 11,
+    color: '#10b981',
+    fontWeight: '600',
+    backgroundColor: '#1a2a1e',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   date: {
     fontSize: 12,
