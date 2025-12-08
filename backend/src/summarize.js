@@ -55,7 +55,7 @@ Abstract: ${truncateAbstract(paper.abstract)}
 Return this exact JSON format:
 {"headline":"5-15 word catchy headline","problem":"What problem? (2 sentences)","approach":"How solved? (2 sentences)","method":"Key innovation (2-3 sentences)","findings":"Results (2-3 sentences)","takeaway":"Why it matters (2 sentences)","tags":["Tag1","Tag2"]}
 
-Tags to use: LLM, Vision, NLP, Deep Learning, Training, Benchmarks, Multimodal, Reinforcement Learning;
+Tags to use: LLM, Vision, NLP, Deep Learning, Training, Benchmarks, Multimodal, Reinforcement Learning`;
 
   const response = await retryWithBackoff(() =>
     anthropic.messages.create({
