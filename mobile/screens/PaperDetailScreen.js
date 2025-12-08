@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
 
-const API_URL = 'https://arxiv-feed-production.up.railway.app';
+const API_URL = 'http://ec2-3-95-139-49.compute-1.amazonaws.com:3001';
 
 export default function PaperDetailScreen({ route, navigation }) {
   const { paper } = route.params;

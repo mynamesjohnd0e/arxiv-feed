@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Production API URL
-const API_URL = 'https://arxiv-feed-production.up.railway.app';
+// Production API URL (EC2)
+const API_URL = 'http://ec2-3-95-139-49.compute-1.amazonaws.com:3001';
 
 const CATEGORIES = [
   { id: '', name: 'All' },
